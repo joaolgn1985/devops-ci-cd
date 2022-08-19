@@ -1,0 +1,122 @@
+---
+kind: pipeline
+type: docker
+name: challenge_DevOps
+
+steps:
+
+- name: Install AWS CLI and create a bucket
+  image: alesson23/terraforandansible:1.0.0
+  environment:
+    AWS_ACCESS_KEY_ID:
+      from_secret: aws_access
+    AWS_SECRET_ACCESS_KEY:
+      from_secret: aws_secret
+  commands:
+    - apt install curl -y
+    - apt update
+    - apt install python3-pip -y
+    - curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+    - unzip awscliv2.zip
+    - ./aws/install
+    - aws --version
+    - aws s3api create-bucket --bucket challenge-backend --region us-east-1
+  when:
+    branch:
+      - main 
+
+- name: Initialize aws plugin for terraform
+  image: alesson23/terraforandansible:1.0.0
+  environment:
+    AWS_ACCESS_KEY_ID:
+      from_secret: aws_access
+    AWS_SECRET_ACCESS_KEY:
+      from_secret: aws_secret
+  commands:
+    - cd ./infra
+    - terraform init
+  when:
+    branch:
+      - main 
+  
+- name: Create AWS Infra
+  image: alesson23/terraforandansible:1.0.0
+  environment:
+    AWS_ACCESS_KEY_ID:
+      from_secret: aws_access
+    AWS_SECRET_ACCESS_KEY:
+      from_secret: aws_secret
+    PRIVATE_KEY:
+      from_secret: private_key
+  commands:
+  - mkdir -p /home/root/.ssh/
+  - echo "$PRIVATE_KEY" > /home/root/.ssh/id_rsa
+  - chmod 600 /home/root/.ssh/id_rsa
+  - ls /home/root/.ssh
+  - cd ./infra
+  - terraform plan 
+  - terraform apply -auto-approve
+  when:
+    branch:
+      - main
+  
+- name: Apply Ansible playbook
+  image: alesson23/terraforandansible:1.0.0
+  environment:
+    AWS_ACCESS_KEY_ID:
+      from_secret: aws_access
+    AWS_SECRET_ACCESS_KEY:
+      from_secret: aws_secret
+    PRIVATE_KEY:
+      from_secret: private_key
+  commands:
+  - mkdir -p ~/.ssh/
+  - echo "$PRIVATE_KEY" > ~/.ssh/id_rsa
+  - chmod 600 ~/.ssh/id_rsa
+  - cat ~/.ssh/id_rsa
+  - unset private_key
+  - chmod 777 ./ec2.py
+  - ansible-playbook -i ec2.py --limit "tag_Name_machine01_DevOps" -u ubuntu --ssh-common-args='-o StrictHostKeyChecking=no' --private-key ~/.ssh/id_rsa site.yml
+  when:
+    branch:
+      - main
+
+- name: Delete AWS Infra
+  image: alesson23/terraforandansible:1.0.0
+  environment:
+    AWS_ACCESS_KEY_ID:
+      from_secret: aws_access
+    AWS_SECRET_ACCESS_KEY:
+      from_secret: aws_secret
+    PRIVATE_KEY:
+      from_secret: private_key
+  commands:
+  - mkdir -p /home/root/.ssh/
+  - echo "$PRIVATE_KEY" > /home/root/.ssh/id_rsa
+  - chmod 600 /home/root/.ssh/id_rsa
+  - cd ./infra
+  - terraform init
+  - terraform destroy -auto-approve
+  when:
+    branch:
+      - delete_infra
+
+- name: Delete S3 bucket
+  image: alesson23/terraforandansible:1.0.0
+  environment:
+    AWS_ACCESS_KEY_ID:
+      from_secret: aws_access
+    AWS_SECRET_ACCESS_KEY: 
+      from_secret: aws_secret
+  commands:
+  - apt install curl -y
+  - apt update
+  - apt install python3-pip -y
+  - curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+  - unzip awscliv2.zip
+  - ./aws/install
+  - aws s3 rb s3://challenge-backend --force
+  when:
+    branch:
+      - delete_infra
+    
